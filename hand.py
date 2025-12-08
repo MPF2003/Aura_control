@@ -1,10 +1,9 @@
-import cv2
 from cvzone.HandTrackingModule import HandDetector
 import time
 
 
 class HandManager:
-    def __init__(self, detectionCon=0.8, maxHands=2, volume_cooldown=0.5, toggle_cooldown=7):
+    def __init__(self, detectionCon=0.8, maxHands=2, volume_cooldown=0.3, toggle_cooldown=7):
         """
         HandManager detects hand gestures:
         - Thumbs up/down → volume control
