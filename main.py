@@ -4,9 +4,7 @@ from face import FaceManager
 from hand import HandManager
 from spotify_player import SpotifyPlayer
 
-# -----------------------------
 # Initialize modules
-# -----------------------------
 cam = WebcamManager()
 cam.start()
 
@@ -20,21 +18,16 @@ spotify = SpotifyPlayer(
     redirect_uri="http://127.0.0.1:8888/callback"
 )
 
-# -----------------------------
 # Command cooldowns
-# -----------------------------
-last_hand_time = 0
-hand_interval = 0.5        # seconds between volume actions
-last_mute_time = 0
-mute_interval = 7           # seconds between mute/unmute
-last_face_time = 0
-face_interval = 2           # 2 seconds between face commands
-volume_step = 10            # volume increase/decrease step
-last_volume = None          # store volume when muting
 
-# -----------------------------
+last_hand_time = 0
+hand_interval = 0.3
+last_mute_time = 0
+mute_interval = 2
+volume_step = 10
+last_volume = None
+
 # Helper: adjust Spotify volume
-# -----------------------------
 
 
 def change_spotify_volume(direction):
@@ -61,59 +54,54 @@ def change_spotify_volume(direction):
         print("Error changing volume:", e)
 
 
-# -----------------------------
 # Main loop
-# -----------------------------
 try:
     while True:
-        # Get webcam frame safely
         frame = cam.get_frame()
         if frame is None:
             print("Failed to read frame, skipping iteration")
             time.sleep(0.1)
             continue
 
-        # ---- Face gestures ----
-        frame, face_cmds = face_manager.detect_and_process(frame)
         now = time.time()
-        for cmd in face_cmds:
-            if now - last_face_time < face_interval:
-                continue  # skip if within 2s cooldown
-            print(f"Face command: {cmd}")
 
-            device = spotify.ensure_device()
-            if not device:
-                continue
+        # ---- Face gestures (cooldown in FaceManager) ----
+        frame, face_cmds = face_manager.detect_and_process(frame)
+        for cmd in face_cmds:
+            print(f"Face command: {cmd}")
 
             if cmd == "PLAY_PAUSE":
                 try:
+                    # Read playback state ONCE
                     playback = spotify.sp.current_playback()
                     is_playing = playback['is_playing'] if playback else False
+                    print(
+                        f"Face command: PLAY_PAUSE | is_playing: {is_playing}")
 
+                    # Use FIXED pause/resume methods
                     if is_playing:
-                        spotify.sp.pause_playback(device_id=device)
+                        spotify.pause()   # ← Uses active device
                         print("Paused")
                     else:
-                        spotify.sp.start_playback(device_id=device)
+                        spotify.resume()  # ← Uses active device
                         print("Resumed")
+
                 except Exception as e:
-                    print("Playback command failed:", e)
+                    print("Playback toggle failed:", e)
 
             elif cmd == "NEXT_TRACK":
                 try:
-                    spotify.sp.next_track(device_id=device)
+                    spotify.next()  # ← Use wrapper
                     print("Next track")
                 except Exception as e:
                     print("Next track failed:", e)
 
             elif cmd == "PREV_TRACK":
                 try:
-                    spotify.sp.previous_track(device_id=device)
+                    spotify.previous()  # ← Use wrapper
                     print("Previous track")
                 except Exception as e:
                     print("Previous track failed:", e)
-
-            last_face_time = now
 
         # ---- Hand gestures ----
         hands, annotated = hand_manager.detect_hands(frame)
@@ -123,10 +111,8 @@ try:
 
             # Volume control
             if gesture in ["VOLUME_UP", "VOLUME_DOWN"] and now - last_hand_time > hand_interval:
-                if gesture == "VOLUME_UP":
-                    change_spotify_volume("UP")
-                elif gesture == "VOLUME_DOWN":
-                    change_spotify_volume("DOWN")
+                change_spotify_volume(
+                    "UP" if gesture == "VOLUME_UP" else "DOWN")
                 last_hand_time = now
 
             # Mute/unmute
@@ -135,18 +121,17 @@ try:
                 if not device:
                     continue
 
+                current = spotify.sp.current_playback()
+                current_vol = current['device']['volume_percent'] if current and current['device'] else 50
+
                 if gesture == "MUTE":
-                    current = spotify.sp.current_playback()
-                    if current and current['device']:
-                        last_volume = current['device']['volume_percent'] or 50
-                    else:
-                        last_volume = 50
+                    last_volume = current_vol
                     spotify.sp.volume(0, device_id=device)
-                    print("Muted → volume set to 0")
+                    print("Muted to volume set to 0")
                 elif gesture == "UNMUTE":
                     restore_vol = last_volume if last_volume is not None else 50
                     spotify.sp.volume(restore_vol, device_id=device)
-                    print(f"Unmuted → volume restored to {restore_vol}%")
+                    print(f"Unmuted to volume restored to {restore_vol}%")
 
                 last_mute_time = now
 
