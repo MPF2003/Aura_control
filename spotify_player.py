@@ -45,23 +45,40 @@ class SpotifyPlayer:
     # DEVICE HANDLING
     # -------------------------------
     def get_active_device(self):
+        """Get currently active device from playback state (most reliable)"""
+        try:
+            playback = self.sp.current_playback()
+            if playback and playback.get("device"):
+                return playback["device"]["id"]
+        except Exception as e:
+            print("Error getting current playback:", e)
+
+        # Fallback: list devices
         try:
             devices = self.sp.devices().get("devices", [])
-            if not devices:
-                return None
-            active = next((d for d in devices if d["is_active"]), None)
-            return active["id"] if active else devices[0]["id"]
-        except:
-            return None
+            if devices:
+                active = next((d for d in devices if d["is_active"]), None)
+                return active["id"] if active else devices[0]["id"]
+        except Exception as e:
+            print("Error listing devices:", e)
+        return None
 
     def ensure_device(self):
-        device = self.get_active_device()
-        if device:
-            try:
-                self.sp.transfer_playback(device)
-            except:
-                pass
-        return device
+        """Ensure we have a valid device and transfer playback if needed"""
+        device_id = self.get_active_device()
+        if not device_id:
+            print("No Spotify device available")
+            return None
+
+        # Optional: transfer playback only if not already on this device
+        try:
+            playback = self.sp.current_playback()
+            if playback and playback.get("device", {}).get("id") != device_id:
+                self.sp.transfer_playback(device_id)
+                print(f"Transferred playback to device: {device_id}")
+        except Exception as e:
+            print("Transfer playback failed:", e)
+        return device_id
 
     # -------------------------------
     # PLAYBACK FOR EMOTION
@@ -85,7 +102,7 @@ class SpotifyPlayer:
 
         try:
             self.sp.start_playback(device_id=device, uris=queue[:50])
-            print(f"▶ NOW PLAYING ({emotion.upper()}) — {len(queue)} tracks")
+            print(f"NOW PLAYING ({emotion.upper()}) — {len(queue)} tracks")
             return True
         except Exception as e:
             print("Playback failed:", e)
@@ -116,7 +133,8 @@ class SpotifyPlayer:
                 **targets
             )
             return [t["uri"] for t in rec.get("tracks", [])]
-        except:
+        except Exception as e:
+            print("Layer 1 failed:", e)
             return []
 
     # -------------------------------
@@ -140,7 +158,8 @@ class SpotifyPlayer:
                     if feat and self._match_features(feat, target):
                         matched.append(item["track"]["uri"])
             return matched
-        except:
+        except Exception as e:
+            print("Layer 2 failed:", e)
             return []
 
     def _match_features(self, feat, target):
@@ -164,13 +183,14 @@ class SpotifyPlayer:
             tracks = rec.get("tracks", [])
             if tracks:
                 return [t["uri"] for t in tracks]
-        except:
-            pass
+        except Exception as e:
+            print("Global rec failed:", e)
         try:
             result = self.sp.search(q=f"genre:{seed}", type="track", limit=30)
             return [t["uri"] for t in result["tracks"]["items"]]
-        except:
-            return []
+        except Exception as e:
+            print("Search fallback failed:", e)
+        return []
 
     # -------------------------------
     # UTILITY — Convert target ranges
@@ -187,20 +207,54 @@ class SpotifyPlayer:
     # BASIC CONTROLS
     # -------------------------------
     def pause(self):
+        """Pause playback on active device"""
+        device = self.get_active_device()
+        if not device:
+            print("Cannot pause: No active device")
+            return False
         try:
-            self.sp.pause_playback()
-        except:
-            pass
+            self.sp.pause_playback(device_id=device)
+            print("Spotify PAUSED")
+            return True
+        except Exception as e:
+            print("Pause failed:", e)
+            return False
+
+    def resume(self):
+        """Resume playback on active device"""
+        device = self.get_active_device()
+        if not device:
+            print("Cannot resume: No active device")
+            return False
+        try:
+            self.sp.start_playback(device_id=device)
+            print("Spotify RESUMED")
+            return True
+        except Exception as e:
+            print("Resume failed:", e)
+            return False
+
+    def play_pause_toggle(self):
+        """Toggle play/pause using current playback state"""
+        try:
+            playback = self.sp.current_playback()
+            if playback and playback.get("is_playing"):
+                return self.pause()
+            else:
+                return self.resume()
+        except Exception as e:
+            print("Toggle failed:", e)
+            return False
 
     def next(self):
         try:
             self.sp.next_track()
-        except:
-            pass
+        except Exception as e:
+            print("Next failed:", e)
 
     def previous(self):
-        """Play previous track (new method)."""
+        """Play previous track"""
         try:
             self.sp.previous_track()
-        except:
-            pass
+        except Exception as e:
+            print("Previous failed:", e)
