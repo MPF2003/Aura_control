@@ -2,7 +2,7 @@ import cv2
 
 
 class WebcamManager:
-    def __init__(self, camera_index=0, width=640, height=480):
+    def __init__(self, camera_index=0, width=1280, height=720):
         self.camera_index = camera_index
         self.width = width
         self.height = height
