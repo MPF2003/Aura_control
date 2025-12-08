@@ -15,8 +15,8 @@ class FaceManager:
         self.tilt_right = 0
 
         # Timing control
-        self.last_action = time.time()  # last action timestamp
-        self.last_trigger = 0  # last command timestamp
+        self.last_action = time.time()
+        self.last_trigger = 0
 
         # Settings
         self.eye_required = eye_required
@@ -25,51 +25,68 @@ class FaceManager:
         self.tilt_thresh = tilt_thresh
         self.smooth_frames = smooth_frames
         self.reset_time = reset_time
-        self.cooldown = cooldown  # 2 sec cooldown for all commands
+        self.cooldown = cooldown
 
         # Smoothing buffers
         self.left_eye_hist = deque(maxlen=smooth_frames)
         self.right_eye_hist = deque(maxlen=smooth_frames)
         self.roll_hist = deque(maxlen=smooth_frames)
 
+        # Blink state machine
+        self.was_blinking = False
+        self.blink_in_progress = False  # ADDED: Prevents multiple triggers in one blink
+
     # ----------------------------
     # Process face landmarks and return commands
     # ----------------------------
+
     def process_face(self, face):
         commands = []
         now = time.time()
 
-        # Reset counters after reset_time
+        # Reset counters after inactivity
         if now - self.last_action > self.reset_time:
             self.blinks = 0
             self.tilt_left = 0
             self.tilt_right = 0
 
-        # ---- EYE DETECTION → PLAY/PAUSE ----
+        # ---- EYE DETECTION → PLAY/PAUSE (STATE MACHINE) ----
         left_up, left_down = face[159], face[145]
         left_l, left_r = face[33], face[133]
         right_up, right_down = face[386], face[374]
         right_l, right_r = face[362], face[263]
 
-        left_ratio = abs(left_up[1] - left_down[1]) / \
-            abs(left_l[0] - left_r[0])
-        right_ratio = abs(right_up[1] - right_down[1]
-                          ) / abs(right_l[0] - right_r[0])
+        # Avoid division by zero
+        left_horiz = max(abs(left_l[0] - left_r[0]), 1)
+        right_horiz = max(abs(right_l[0] - right_r[0]), 1)
+
+        left_ratio = abs(left_up[1] - left_down[1]) / left_horiz
+        right_ratio = abs(right_up[1] - right_down[1]) / right_horiz
 
         self.left_eye_hist.append(left_ratio)
         self.right_eye_hist.append(right_ratio)
 
-        left_closed = all(r < self.eye_thresh for r in self.left_eye_hist)
-        right_closed = all(r < self.eye_thresh for r in self.right_eye_hist)
-        both_closed = left_closed and right_closed
+        avg_left = sum(self.left_eye_hist) / len(self.left_eye_hist)
+        avg_right = sum(self.right_eye_hist) / len(self.right_eye_hist)
+        both_closed = avg_left < self.eye_thresh and avg_right < self.eye_thresh
 
-        if both_closed and (now - self.last_trigger > self.cooldown):
-            self.blinks += 1
-            self.last_action = now
-            if self.blinks >= self.eye_required:
-                commands.append("PLAY_PAUSE")
-                self.blinks = 0
-                self.last_trigger = now  # update cooldown
+        # === RISING EDGE: Open → Closed (ONLY IF NOT ALREADY IN PROGRESS) ===
+        if both_closed and not self.was_blinking and not self.blink_in_progress:
+            if now - self.last_trigger > self.cooldown:
+                self.blinks += 1
+                self.last_action = now
+                self.was_blinking = True
+                self.blink_in_progress = True  # LOCK: one blink = one event
+                self.last_trigger = now
+
+                if self.blinks >= self.eye_required:
+                    commands.append("PLAY_PAUSE")
+                    self.blinks = 0
+
+        # === FALLING EDGE: Eyes open again → reset state ===
+        elif not both_closed and self.was_blinking:
+            self.was_blinking = False
+            self.blink_in_progress = False  # UNLOCK
 
         # ---- HEAD TILT → NEXT/PREV TRACK ----
         left_ear, right_ear = face[234], face[454]
