@@ -13,9 +13,9 @@ hand_manager = HandManager(maxHands=2)
 
 # Replace with your Spotify credentials
 spotify = SpotifyPlayer(
-    client_id="ba3712c147094d3e8291abe866ceae2b",
-    client_secret="9f2c96ee53c6439da9b4b7491cd4c84d",
-    redirect_uri="http://127.0.0.1:8888/callback"
+    client_id="",
+    client_secret="",
+    redirect_uri=""
 )
 
 # Command cooldowns
